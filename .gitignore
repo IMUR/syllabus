@@ -12,3 +12,11 @@ Thumbs.db
 # Python cache
 __pycache__/
 *.pyc
+
+# Ignore hyper-specific skills in this public repo
+colab-learn/
+colab-ops/
+colab-teach/
+record-keeping/
+skill-deploy/
+theme/
