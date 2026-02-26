@@ -16,60 +16,98 @@ Protext provides a three-layer context hierarchy for token-efficient AI agent or
 ## Core Concept
 
 ```
-PROTEXT.md (Layer 0)  →  .protext/index.yaml (Layer 1)  →  Deep Context (Layer 2)
-     ~500 tokens              Signposts only                 Full docs/memory
-     Always loaded            On-demand hints                Explicit extraction
+AGENTS.md footer (Layer 0)  →  .protext/index.yaml (Layer 1)  →  Deep Context (Layer 2)
+     ~500 tokens                     Signposts only                  Full docs/memory
+     Always loaded                   On-demand hints                 Explicit extraction
 ```
 
-**Separation of Concerns:**
-- Behavior file = Agent behavior (how to act) — stable, rarely changes
-  - `CLAUDE.md` (Claude Code) · `GEMINI.md` (Gemini CLI) · `AGENTS.md` (Codex/OpenCode)
-- `PROTEXT.md` = Project state (what's happening) — dynamic, session-aware
+Protext embeds project state as a **footer section inside `AGENTS.md`**. This keeps root-level files minimal and ensures every tool that reads `AGENTS.md` gets both behavioral instructions and project orientation in one read.
+
+**Unified Architecture:**
+- `AGENTS.md` = Agent behavior (stable, top) + Project context (dynamic, footer)
+- `CLAUDE.md` / `GEMINI.md` = Thin wrappers that point to `AGENTS.md`
+- `.protext/` = Scopes, extractions, handoff, config (hidden dir)
 
 ## File Structure
 
 ```
 project-root/
-├── PROTEXT.md                  # Layer 0: Orientation (~500 tokens)
-├── CLAUDE.md / GEMINI.md / AGENTS.md   # Existing: Behavior instructions (platform-specific)
+├── AGENTS.md                   # Behavior + Protext footer (single source of truth)
+├── CLAUDE.md                   # Wrapper → reads AGENTS.md (Claude Code)
+├── GEMINI.md                   # Wrapper → reads AGENTS.md (optional)
 └── .protext/
+    ├── config.yaml             # Protext settings
     ├── index.yaml              # Layer 1: Extraction signposts
     ├── handoff.md              # Session continuity
-    ├── scopes/
-    │   ├── ops.md              # Operations context
-    │   ├── dev.md              # Development context
-    │   └── security.md         # Security context
-    └── config.yaml             # Protext settings
+    └── scopes/
+        ├── ops.md              # Operations context
+        ├── dev.md              # Development context
+        └── security.md         # Security context
 ```
 
-## PROTEXT.md Format
+**Root-level files:** Only `AGENTS.md` + `CLAUDE.md` required. `GEMINI.md` optional. No standalone `PROTEXT.md`.
+
+## Protext Footer Format
+
+The protext section lives at the **end** of `AGENTS.md`, delimited by `<!-- protext:begin -->` and `<!-- protext:end -->`. Everything above is stable behavioral content; everything inside is dynamic project state managed exclusively by protext.
 
 ```markdown
-# Protext: [Project Name]
-> Generated: YYYY-MM-DD | Scope: [active-scope] | Tokens: ~XXX
+# AGENTS.md
 
-## Identity
+[... behavioral content: commands, conventions, rules ...]
+
+---
+
+<!-- protext:begin -->
+<!-- This section is managed by /protext. Do not edit manually. Do not add content below this block. -->
+## Project Context
+> Updated: YYYY-MM-DD | Scope: [active-scope] | Tokens: ~XXX
+
+### Identity
+<!-- marker:identity -->
 [1-2 sentences: What is this project/system?]
+<!-- /marker:identity -->
 
-## Current State
+### Current State
+<!-- marker:state -->
 Active: [current work] | Blocked: [blockers] | Recent: [last completed]
+<!-- /marker:state -->
 
-## Hot Context
+### Hot Context
+<!-- marker:hot -->
 - [Critical point 1]
 - [Critical point 2]
 - [Critical point 3]
+<!-- /marker:hot -->
 
-## Scope Signals
+### Scope Signals
 - `@ops` → .protext/scopes/ops.md
 - `@security` → .protext/scopes/security.md
 - `@deep:[name]` → Extract from index
 
-## Links
-- `[path]` → [rel-type] | [note]
+### Child Projects
+- `./child/` → **active** | [description] | Recent: [last activity]
 
-## Handoff
+### Links
+<!-- marker:links -->
+- `[path]` → [rel-type] | [note]
+<!-- /marker:links -->
+
+### Handoff
+<!-- marker:handoff -->
 Last: [summary] | Next: [suggested] | Caution: [warnings]
+<!-- /marker:handoff -->
+<!-- protext:end -->
 ```
+
+**Footer rules:**
+- `<!-- protext:begin/end -->` delimiters are required — they make the block machine-addressable
+- The guard comment (`Do not edit manually. Do not add content below this block.`) keeps other agents from modifying or displacing the footer
+- Only `/protext` commands should write to this block
+- Use `## Project Context` (H2), `###` for subsections — peers with other AGENTS.md sections
+- Preserve all `<!-- marker:* -->` tags — parent aggregation depends on them
+- `### Child Projects` and `### Links` are optional (omit if unused)
+- Keep the footer under ~500 tokens
 
 ## Commands
 
@@ -78,29 +116,35 @@ Last: [summary] | Next: [suggested] | Caution: [warnings]
 **Load project orientation.** This is the main entry point - invoke at session start.
 
 ```text
-/protext              # Load PROTEXT.md + active scope + handoff status
+/protext              # Load protext footer + active scope + handoff
 /protext @security    # Load with security scope
 /protext --full       # Include available extractions list
 ```
 
 **What it does:**
-1. Reads and displays PROTEXT.md (orientation layer)
-2. Shows handoff status (FRESH/AGING/STALE)
-3. Loads active scope context
-4. Lists available deep extractions (with `--full`)
+1. Finds the protext block (see detection order below)
+2. Reads and displays the project context
+3. Shows handoff status (FRESH/AGING/STALE)
+4. Loads active scope context
+5. Lists available deep extractions (with `--full`)
+
+**Detection order — find protext content using the first match:**
+1. `AGENTS.md` contains `<!-- protext:begin -->` → read the footer block (current pattern)
+2. Standalone `PROTEXT.md` exists → read it (legacy pattern — offer to migrate)
+3. Neither found → offer to run `protext init`
 
 **Cross-platform:** Works as slash command on Claude Code, or natural language on other platforms:
 - "Load protext"
 - "Show me the project context"
 - "What's the current state?"
 
-**If no PROTEXT.md exists:** Inform the user and offer to run `protext init` to bootstrap one. Do not fail silently.
+**If legacy `PROTEXT.md` detected:** Load it normally, but inform the user that protext now embeds in `AGENTS.md` and offer to migrate. Do not auto-migrate.
 
 ---
 
 ### `protext init`
 
-Initialize protext in a project. Reads existing CLAUDE.md to bootstrap.
+Initialize protext in a project.
 
 ```text
 # Standard mode
@@ -111,9 +155,23 @@ Initialize protext in a project. Reads existing CLAUDE.md to bootstrap.
 "protext init --parent"
 ```
 
-Creates: PROTEXT.md, .protext/ directory with full structure.
+**Detection-based behavior — examine what exists and act accordingly:**
 
-**Parent mode:** Scans for child `.protext/` directories, aggregates their status into `## Child Projects` section. One-level hierarchy only.
+| State found | Action |
+|-------------|--------|
+| `AGENTS.md` with `<!-- protext:begin -->` | Already initialized — inform user, no action |
+| `AGENTS.md` exists, no protext footer | Append the protext footer block to `AGENTS.md` |
+| No `AGENTS.md`, standalone `PROTEXT.md` exists | Create `AGENTS.md` (extract shared content from `CLAUDE.md` if present), fold `PROTEXT.md` content into footer, delete `PROTEXT.md` after user confirms |
+| No `AGENTS.md`, no `PROTEXT.md` | Create `AGENTS.md` with minimal behavior section + protext footer, create `.protext/` |
+| `.protext/` dir missing | Create it with config.yaml, empty scopes/ |
+
+When folding a standalone `PROTEXT.md` into the footer:
+- `# Protext: [Name]` H1 becomes `## Project Context` H2
+- All `## Section` H2 headings become `### Section` H3
+- All `<!-- marker:* -->` tags are preserved
+- The `<!-- protext:begin/end -->` delimiters and guard comment are added
+
+**Parent mode:** Scans for child `AGENTS.md` files (falling back to child `PROTEXT.md` for unmigrated repos), aggregates their status into `### Child Projects`. One-level hierarchy only.
 
 ### `protext status`
 
@@ -187,20 +245,20 @@ Re-aggregate child status in parent protext. **User-initiated only** — no auto
 "Update children status"
 ```
 
-Scans child `.protext/` directories, extracts status from markers (or headings fallback), updates parent `## Child Projects` section.
+Scans child `AGENTS.md` files for `<!-- protext:begin -->` blocks, extracts status from markers. Falls back to standalone `PROTEXT.md` for unmigrated children. Updates parent `### Child Projects` subsection.
 
 ## Parent Protext
 
 Meta-projects that aggregate multiple child protexts. Created with `protext init --parent`.
 
 **Key features:**
-- `## Child Projects` section lists all children with status (active/idle/stale)
-- Child status based on PROTEXT.md modification time (< 7 days = active)
+- `### Child Projects` subsection lists all children with status (active/idle/stale)
+- Child status based on `.protext/config.yaml` modification time (< 7 days = active, ≥ 7 = idle, ≥ 30 = stale)
 - No extraction index (children have their own)
 - `protext refresh --children` re-aggregates (explicit user command only)
 - One-level hierarchy: parent → children only
 
-**Marker extraction:** Parent uses `<!-- marker:identity -->`, `<!-- marker:state -->` from children. Falls back to heading-based parsing if markers absent (backward compatible).
+**Marker extraction:** Parent reads `<!-- marker:identity -->`, `<!-- marker:state -->` from child `AGENTS.md` protext footers. Falls back to standalone `PROTEXT.md` if no footer found (backward compatible with unmigrated repos).
 
 **Zero auto-execution:** Parent never auto-refreshes on load. Always explicit.
 
@@ -312,12 +370,12 @@ Behavior:
 ## Progressive Tiers
 
 ### Beginner
-- PROTEXT.md only
+- AGENTS.md with protext footer only
 - No scopes, extractions, or handoff
-- Direct editing
+- Direct editing of footer
 
 ### Intermediate
-- PROTEXT.md + handoff.md
+- AGENTS.md footer + handoff.md
 - Session continuity
 - No extraction index
 
@@ -335,34 +393,29 @@ Behavior:
 | Max child links | Unlimited | Structure dictates count |
 | Max extractions | 20 | Index stays scannable |
 | Token budget | 2000 | Default per-session limit |
-| Handoff TTL | 48h | Legacy, no longer enforced |
-| PROTEXT.md size | ~500 tokens | Quick orientation |
+| Protext footer size | ~500 tokens | Quick orientation |
 | Hierarchy depth | 1 level | Parent → children only |
 
-## Integration Patterns
+## Integration with Agent Files
 
-### With Behavior Files
+Protext embeds in `AGENTS.md`, which is the single source of truth per the `align-agentfiles` pattern:
 
-The platform behavior file (`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`) provides behavioral instructions (stable):
-```markdown
-# CLAUDE.md  (or GEMINI.md / AGENTS.md)
-## How to Work
-- Validate Caddy config before reloading
-- Never hardcode secrets
+```
+AGENTS.md              ← Behavior (stable) + Protext footer (dynamic)
+  ↑ reads                    ↑ reads
+CLAUDE.md (<30 lines)      GEMINI.md (<30 lines)
+  └ Claude-specific            └ Gemini-specific
 ```
 
-PROTEXT.md provides state orientation (dynamic):
-```markdown
-# PROTEXT.md
-## Current State
-Active: Caddy refactor | Recent: Pi-hole v6 migration
-```
+- **Codex/OpenCode** auto-read `AGENTS.md` → get both behavior and protext
+- **Claude** reads `CLAUDE.md` which directs it to `AGENTS.md` → gets both
+- **Gemini** reads `GEMINI.md` which directs it to `AGENTS.md` → gets both
 
 ### With Memory Systems
 
 Protext complements but doesn't replace:
 - **memory/** — Long-term learnings, patterns
-- **PROTEXT.md** — Current session orientation
+- **Protext footer** — Current session orientation
 
 ## Scripts
 
@@ -375,5 +428,5 @@ Requires **Python 3.8+**. No external packages needed (yaml parsed with fallback
 
 Consult these only when deeper detail is needed:
 
-- `references/formats.md` — Read when creating or editing PROTEXT.md, index.yaml, handoff.md, or scope files. Contains complete templates and field guidelines.
+- `references/formats.md` — Read when creating or editing protext footers, index.yaml, handoff.md, or scope files. Contains complete templates and field guidelines.
 - `references/commands.md` — Read when implementing command handling or troubleshooting. Contains full syntax, flags, error messages, and natural language alternatives.

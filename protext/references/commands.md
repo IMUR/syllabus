@@ -1,4 +1,3 @@
-
 # Protext Command Reference
 
 All protext commands with syntax, examples, and natural language alternatives.
